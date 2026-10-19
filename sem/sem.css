@@ -1,0 +1,35 @@
+.iso{--sm-void:#070707;--sm-coil:#232019;--sm-glass:#0c0d0d;--sm-mesh:#0b0b0b;--sm-cut:#1f1f1f;--sm-cut-2:#191919;--sm-pear:#ffffff;--sm-lcd-bg:#050505}
+.iso[data-theme="light"]{--sm-void:#c9c9c4;--sm-coil:#e9e2cf;--sm-glass:#dfe3e2;--sm-mesh:#d2d2cd;--sm-cut:#f7f7f4;--sm-cut-2:#ececE8;--sm-pear:#000000;--sm-lcd-bg:#101010}
+.sm-void{fill:var(--sm-void);stroke:none}
+.sm-coil{fill:var(--sm-coil);stroke:none}
+.sm-glass{fill:var(--sm-glass);stroke:none}
+.sm-mesh{fill:var(--sm-mesh);stroke:none}
+.sm-lcd-bg{fill:var(--sm-lcd-bg);stroke:none}
+.sm-img{image-rendering:pixelated;image-rendering:crisp-edges}
+.sm-lcd-text{fill:#9a9a9a;font-family:var(--anatomy-mono);letter-spacing:.02em}
+.sm-lcd-bar{fill:#d0d0d0;stroke:none}
+.sm-scanline{fill:#d0d0d0;opacity:.55;stroke:none}
+.sm-beam{pointer-events:none}
+.sm-beam .sm-env{fill:var(--anatomy-lit);opacity:.22;stroke:none}
+.sm-beam .sm-core{fill:none;stroke:var(--anatomy-lit);stroke-width:.7;stroke-linecap:round;stroke-linejoin:round}
+.sm-beam .sm-dots{fill:var(--anatomy-lit);stroke:none}
+.sm-beam .sm-pear{fill:var(--sm-pear);opacity:.55;stroke:none}
+.sm-beam .sm-pear-edge{fill:none;stroke:var(--anatomy-lit);stroke-width:.7;stroke-linejoin:round}
+.sm-beam .sm-spot{fill:var(--anatomy-lit);stroke:none}
+.sm-beam .sm-halo{fill:var(--anatomy-lit);opacity:.25;stroke:none;filter:blur(1.2px)}
+.iso[data-theme="light"] .sm-beam .sm-env{opacity:.16}
+.iso[data-theme="light"] .sm-beam .sm-pear{opacity:.32}
+.sm-seg{display:inline-flex;align-items:center;gap:10px;margin:0;padding:0;border:0;min-inline-size:0}
+.sm-seg legend{float:left;margin-right:10px;padding:0}
+.sm-seg label{position:relative;display:inline-flex;cursor:pointer}
+.sm-seg label+label{margin-left:-1px}
+.sm-seg input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.sm-seg span{padding:4px 9px;border:1px solid var(--anatomy-mid);color:var(--anatomy-muted);letter-spacing:.06em}
+.sm-seg label:first-of-type span{border-radius:2px 0 0 2px}
+.sm-seg label:last-of-type span{border-radius:0 2px 2px 0}
+.sm-seg input:checked+span{background:var(--anatomy-hi);color:var(--anatomy-card)}
+.sm-seg input:focus-visible+span{outline:1px solid var(--anatomy-muted);outline-offset:3px}
+.bx-controls .bx-note{flex-basis:100%}
+@media (max-width:560px){.iso-plate-corner[data-corner="readout"]{font-size:8px;letter-spacing:.01em}.sm-seg span{padding:4px 6px}}
+.sm-cut{fill:var(--sm-cut);stroke:none}
+.sm-cut-2{fill:var(--sm-cut-2);stroke:none}
