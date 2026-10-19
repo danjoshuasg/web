@@ -14,7 +14,7 @@ h1{font-size:1rem;font-weight:400;color:var(--mute);letter-spacing:.08em;text-tr
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px}
 .card{display:block;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;color:inherit;text-decoration:none;transition:border-color .15s}
 .card:hover,.card:focus-visible{outline:none;border-color:var(--fg)}
-.card picture{display:block;overflow:hidden;aspect-ratio:1.6;border-bottom:1px solid var(--line)}
+.card picture{display:block;overflow:hidden;aspect-ratio:var(--ar,1.6);border-bottom:1px solid var(--line)}
 .card img{display:block;width:var(--w,100%);height:auto;margin-left:calc((100% - var(--w,100%)) / 2)}
 .card div{padding:12px 16px 16px}
 .card b{display:block;font-weight:400}
@@ -36,6 +36,10 @@ h1{font-size:1rem;font-weight:400;color:var(--mute);letter-spacing:.08em;text-tr
 <a class="card" href="xrf/xrf.html">
 <picture><source srcset="xrf/shots/desk-light.png" media="(prefers-color-scheme: light)"><img src="xrf/shots/desk.png" alt="Isometric EDXRF spectrometer" loading="lazy"></picture>
 <div><b>Fig 3 · XRF</b><small>EDXRF, Rh tube, SDD detector</small></div>
+</a>
+<a class="card" href="xrd/xrd.html" style="--ar:1.5">
+<picture><source srcset="xrd/shots/desk-light.png" media="(prefers-color-scheme: light)"><img src="xrd/shots/desk.png" alt="Isometric powder X-ray diffractometer" loading="lazy"></picture>
+<div><b>Fig 4 · XRD</b><small>Bragg-Brentano, Cu tube, theta-theta goniometer</small></div>
 </a>
 </div>
 </main>

@@ -1,0 +1,31 @@
+.iso{--xd-void:#090909;--xd-foil:#2a2a2a;--xd-powder:#3a3a3a;--xd-glass:#1d2020}
+.iso[data-theme="light"]{--xd-void:#cfcfcb;--xd-foil:#bdbdb8;--xd-powder:#dcdcd7;--xd-glass:#d6dbda}
+.xd-void{fill:var(--xd-void);stroke:none}
+.xd-foil{fill:var(--xd-foil);stroke:none}
+.xd-powder{fill:var(--xd-powder);stroke:none}
+.xd-glass{fill:var(--xd-glass);stroke:none}
+.xd-beam [data-part$="-ray"]{fill:var(--anatomy-lit);stroke:none}
+.xd-beam [data-part$="-dots"]{fill:var(--anatomy-lit);stroke:none}
+[data-part="beam-in"] .xd-ray{opacity:.26}
+[data-part="beam-in"] .xd-photon{opacity:.85}
+[data-part="beam-out"] .xd-ray{opacity:calc(.04 + .5 * var(--xd-glow,0))}
+[data-part="beam-out"] .xd-photon{opacity:calc(.35 + .65 * var(--xd-glow,0))}
+.xd-spot{fill:var(--anatomy-lit);stroke:none;opacity:.7}
+.iso[data-theme="light"] [data-part="beam-in"] .xd-ray{opacity:.2}
+.iso[data-theme="light"] [data-part="beam-out"] .xd-ray{opacity:calc(.03 + .42 * var(--xd-glow,0))}
+.xd-lcd-small{letter-spacing:0}
+.xd-seg{display:inline-flex;align-items:center;gap:10px;margin:0;padding:0;border:0;min-inline-size:0}
+.xd-seg legend{float:left;margin-right:10px;padding:0}
+.xd-seg label{position:relative;display:inline-flex;cursor:pointer}
+.xd-seg label+label{margin-left:-1px}
+.xd-seg input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.xd-seg span{padding:4px 9px;border:1px solid var(--anatomy-mid);color:var(--anatomy-muted);letter-spacing:.06em}
+.xd-seg label:first-of-type span{border-radius:2px 0 0 2px}
+.xd-seg label:last-of-type span{border-radius:0 2px 2px 0}
+.xd-seg input:checked+span{background:var(--anatomy-hi);color:var(--anatomy-card)}
+.xd-seg input:focus-visible+span{outline:1px solid var(--anatomy-muted);outline-offset:3px}
+.xd-scan{font:inherit;letter-spacing:.06em;padding:4px 12px;border:1px solid var(--anatomy-mid);border-radius:2px;background:transparent;color:var(--anatomy-text);cursor:pointer}
+.xd-scan[aria-pressed="true"]{background:var(--anatomy-hi);color:var(--anatomy-card)}
+.xd-scan:focus-visible{outline:1px solid var(--anatomy-muted);outline-offset:3px}
+.bx-controls .bx-note{flex-basis:100%}
+@media (max-width:560px){.iso-plate-corner[data-corner="readout"]{font-size:8px;letter-spacing:.01em}.xd-seg span{padding:4px 6px}}
