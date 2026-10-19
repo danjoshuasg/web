@@ -1142,7 +1142,7 @@ function liveStage(stage, opts) {
   const liveEl = document.querySelector("[data-live]");
   const tour = opts.tour ?? [];
   const idle = opts.idle ?? 3600;
-  let raf = 0, last = 0, visible = false, touring = !media.matches, idleTimer = 0, stop = 0, quiet = 0;
+  let raf = 0, last = 0, visible = false, touring = !media.matches, idleTimer = 0, stop = 0, quiet = 0, held = false;
   function tick(now) {
     const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
     last = now;
@@ -1157,14 +1157,15 @@ function liveStage(stage, opts) {
   function steer(next) {
     touring = false;
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => { touring = !media.matches; }, idle);
+    idleTimer = setTimeout(() => { touring = !media.matches && !held; }, idle);
     opts.apply(next);
     announce();
     if (media.matches) opts.rest();
     else start();
   }
-  const pause = () => { touring = false; clearTimeout(idleTimer); };
-  const resumeLater = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => { touring = !media.matches; }, idle); };
+  // while the pointer is over the stage or it has focus, the tour stays paused (held); it resumes idle ms after both leave
+  const pause = () => { held = true; touring = false; clearTimeout(idleTimer); };
+  const resumeLater = () => { held = stage.matches(":hover") || document.activeElement === stage; clearTimeout(idleTimer); idleTimer = setTimeout(() => { touring = !media.matches && !held; }, idle); };
   const key = opts.key;
   if (key) stage.addEventListener("keydown", (event) => {
     const step = event.shiftKey ? key.big : key.step;
