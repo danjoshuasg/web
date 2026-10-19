@@ -1,19 +1,15 @@
-// Live behaviour for the HPLC figure. The kit (iso, pathOf, translateAlong, holdStill) and
-// model.mjs (run, pressure, phiAt, retentionFactor, deadTime, ANALYTES, COLUMN, LIMITS) are inlined above.
+// Live behaviour for the HPLC figure. Inlined above it: the kit (iso, pathOf, translateAlong, holdStill),
+// model.mjs (run, pressure, phiAt, retentionFactor, deadTime, ANALYTES, COLUMN, LIMITS) and
+// common/live-core.js (clamp, smoothstep, screenOf, ease, liveStage).
 const DATA = __DATA__;
 const { P } = DATA;
-const stage = document.querySelector(".hp-stage");
+const stage = document.querySelector(".bx-stage");
 const svg = stage.querySelector("svg");
 const part = (name) => svg.querySelector(`[data-part="${name}"]`);
 const readout = document.querySelector("[data-readout]");
-const methodEl = document.querySelector("[data-method]");
-const liveEl = document.querySelector("[data-live]");
+const methodEl = document.querySelector("[data-note]");
 const inputs = { flow: document.querySelector('[data-ctl="flow"]'), phi1: document.querySelector('[data-ctl="phi1"]') };
 const outputs = { flow: document.querySelector('[data-out="flow"]'), phi1: document.querySelector('[data-out="phi1"]') };
-const still = matchMedia("(prefers-reduced-motion: reduce)");
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
-const screenOf = (v) => { const a = iso([0, 0, 0], P), b = iso(v, P); return [b[0] - a[0], b[1] - a[1]]; };
 
 // ---------------------------------------------------------------- method and its precomputed run
 const params = { ...DATA.defaults };
@@ -90,7 +86,7 @@ const cycleLength = () => INJECT + runSeconds() + T.lift + T.back + T.hold;
 
 // ---------------------------------------------------------------- drawing
 const pistons = DATA.pistons.map((id) => ({ id, cam: part("cam" + id), rod: part("piston" + id), theta: 0 }));
-const unitX = screenOf([1, 0, 0]);
+const unitX = screenOf([1, 0, 0], P);
 const carriage = part("carriage");
 const needle = part("needle");
 const cut = part("cut");
@@ -152,9 +148,9 @@ function draw(pose, phi) {
   }
   // autosampler
   const dx = shown.x - N.x;
-  const carOff = screenOf([dx, 0, 0]);
+  const carOff = screenOf([dx, 0, 0], P);
   carriage.setAttribute("transform", `translate(${carOff[0].toFixed(2)} ${carOff[1].toFixed(2)})`);
-  const nOff = screenOf([0, 0, -shown.down]);
+  const nOff = screenOf([0, 0, -shown.down], P);
   needle.setAttribute("transform", `translate(${nOff[0].toFixed(2)} ${nOff[1].toFixed(2)})`);
   holdStill(needle, nOff);
   const ez = entryZ(shown.x);
@@ -194,46 +190,34 @@ function draw(pose, phi) {
   if (text !== lastText) { readout.textContent = text; lastText = text; }
 }
 
-// ---------------------------------------------------------------- loop
-let frame = 0, last = 0, visible = false, touring = !still.matches, idleTimer = 0, tourStep = 0, quiet = 0;
+// ---------------------------------------------------------------- loop (rAF, reduced motion, tour, keys, live region: live-core)
 const TOUR = [{ flow: 1.0, phi1: 0.8 }, { flow: 1.6, phi1: 0.8 }, { flow: 1.6, phi1: 0.95 }, { flow: 0.6, phi1: 0.6 }];
-function tick(now) {
-  const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
-  last = now;
+function advance(dt) {
   c += dt;
   if (c >= cycleLength()) {
     c = 0;
     vial++;
-    if (touring) { tourStep = (tourStep + 1) % TOUR.length; Object.assign(params, TOUR[tourStep]); prepare(); }
+    const stop = live.nextStop();
+    if (stop) { Object.assign(params, stop); prepare(); }
   }
   const pose = poseAt(c);
   const phi = pose.phase === "sampling" ? params.phi0 : phiAt(pose.tRun, params);
-  const ease = (from, to, tau) => from + (to - from) * (1 - Math.exp(-dt / tau));
-  shown.x = ease(shown.x, pose.x, 0.06);
-  shown.down = ease(shown.down, pose.down, 0.06);
-  shown.valve = ease(shown.valve, pose.valve, 0.08);
-  shown.p = ease(shown.p, pressure(params.flow, phi), 0.25);
+  shown.x = ease(shown.x, pose.x, 0.06, dt);
+  shown.down = ease(shown.down, pose.down, 0.06, dt);
+  shown.valve = ease(shown.valve, pose.valve, 0.08, dt);
+  shown.p = ease(shown.p, pressure(params.flow, phi), 0.25, dt);
   // each channel strokes at its own share of the flow: f = q / V_stroke
   const q = [params.flow * (1 - phi), params.flow * phi];
   pistons.forEach((p, i) => { p.theta = (p.theta + (2 * Math.PI * q[i] * dt) / (DATA.strokeML * 60)) % (2 * Math.PI); });
   draw(pose, phi);
-  frame = visible ? requestAnimationFrame(tick) : 0;
 }
-const start = () => { if (!frame && visible && !still.matches) { last = 0; frame = requestAnimationFrame(tick); } };
 function stillFrame() {
   // reduced motion: one representative frame, the finished run with the needle in its seat
   const pose = { x: DATA.needle.x, down: DATA.needle.down, valve: 1, tRun: method.end, phase: "done" };
   Object.assign(shown, { x: pose.x, down: pose.down, valve: 1, p: pressure(params.flow, phiAt(method.end, params)) });
   draw(pose, phiAt(method.end, params));
 }
-function announce() {
-  clearTimeout(quiet);
-  quiet = setTimeout(() => { liveEl.textContent = `Flow ${params.flow.toFixed(2)} millilitres per minute, final ${Math.round(params.phi1 * 100)} percent B: peaks at ${method.peaks.map((p) => p.tR.toFixed(2)).join(", ")} minutes, ${Math.round(method.pMax)} bar.`; }, 700);
-}
-function steer(next) {
-  touring = false;
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { touring = !still.matches; }, 3600);
+function retune(next) {
   const flow = next.flow ?? params.flow;
   const phi1 = next.phi1 ?? params.phi1;
   params.flow = Math.round(clamp(flow, LIMITS.flow[0], LIMITS.flow[1]) * 100) / 100;
@@ -241,31 +225,16 @@ function steer(next) {
   prepare();
   // a new method re-injects: the run restarts at the valve switch, the needle already in its seat
   if (c > INJECT) c = INJECT;
-  announce();
-  if (still.matches) stillFrame();
-  else start();
 }
-const pause = () => { touring = false; clearTimeout(idleTimer); };
-const resumeLater = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => { touring = !still.matches; }, 3600); };
-stage.addEventListener("keydown", (event) => {
-  const step = event.shiftKey ? 0.25 : 0.05;
-  let flow = null;
-  if (event.key === "ArrowRight" || event.key === "ArrowUp") flow = params.flow + step;
-  if (event.key === "ArrowLeft" || event.key === "ArrowDown") flow = params.flow - step;
-  if (event.key === "Home") flow = LIMITS.flow[0];
-  if (event.key === "End") flow = LIMITS.flow[1];
-  if (flow === null) return;
-  event.preventDefault();
-  steer({ flow });
+const live = liveStage(stage, {
+  step: advance,
+  rest: stillFrame,
+  apply: retune,
+  say: () => `Flow ${params.flow.toFixed(2)} millilitres per minute, final ${Math.round(params.phi1 * 100)} percent B: peaks at ${method.peaks.map((p) => p.tR.toFixed(2)).join(", ")} minutes, ${Math.round(method.pMax)} bar.`,
+  key: { value: () => params.flow, step: 0.05, big: 0.25, min: LIMITS.flow[0], max: LIMITS.flow[1], to: (flow) => ({ flow }) },
+  tour: TOUR,
 });
-stage.addEventListener("pointerenter", pause);
-stage.addEventListener("pointerleave", resumeLater);
-stage.addEventListener("focus", () => { pause(); liveEl.textContent = stage.getAttribute("aria-valuetext"); });
-stage.addEventListener("blur", resumeLater);
-inputs.flow.addEventListener("input", () => steer({ flow: Number(inputs.flow.value) }));
-inputs.phi1.addEventListener("input", () => steer({ phi1: Number(inputs.phi1.value) / 100 }));
-still.addEventListener?.("change", () => { touring = !still.matches; if (still.matches) stillFrame(); else start(); });
-new IntersectionObserver((entries) => { visible = entries[entries.length - 1].isIntersecting; if (visible) start(); }, { rootMargin: "120px 0px" }).observe(stage);
+inputs.flow.addEventListener("input", () => live.steer({ flow: Number(inputs.flow.value) }));
+inputs.phi1.addEventListener("input", () => live.steer({ phi1: Number(inputs.phi1.value) / 100 }));
 prepare();
-if (still.matches) { touring = false; stillFrame(); }
-else draw(poseAt(0), params.phi0);
+live.begin(() => draw(poseAt(0), params.phi0));

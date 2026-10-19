@@ -5,9 +5,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as k from "../kit/iso-kit.mjs";
 import * as G from "../kit/lathe.mjs";
-import { tubePieces, tubeSvg } from "../kit/tube.mjs";
 import * as A from "../kit/audit.mjs";
 import { kitScript } from "../scripts/inline-kit.mjs";
+import { makeBench, moduleText, LIVE_CORE, controlsHtml, stageHtml, pageOf, scriptOf } from "../common/bench.mjs";
 import * as M from "./model.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -75,109 +75,17 @@ const P = k.fitProjection(
 );
 const V = G.viewOf(P);
 const KS = G.scaleOf(P);
-const at = (p) => k.iso(p, P);
-const S = (paths, style) => k.solidSvg(paths, style);
-const L = (d, style) => k.lineSvg(d, style);
-const D = (pts, style) => k.dotsSvg(pts, style);
-const path3 = (pts, closed = false) => k.pathOf(pts.map(at), closed);
-const rounded = (u0, v0, u1, v1, r, map, steps = 4) => path3(k.roundedPlan({ x: u0, y: v0, w: u1 - u0, d: v1 - v0, r }, steps).map(([u, v]) => map(u, v)), true);
-const onFront = (y) => (u, v) => [u, y, v]; // u = x, v = z
-const onRight = (x) => (u, v) => [x, u, v]; // u = y, v = z
-const onTop = (z) => (u, v) => [u, v, z];
-
-// ---------------------------------------------------------------- recorder
 const R = A.recorder(P);
-const record = R.solid;
-function put(name, centre, svg, shapes = [], { bias = 0 } = {}) {
-  const id = R.nameFor(name);
-  R.put({ at: centre, bias, svg, name: id, shapes });
-  return id;
-}
-function box(name, plan, z, h, { tone = "mid", steps = 3, bevel = 0.5, extra = "", inner = "", lit = false, crease, bias = 0, owner } = {}) {
-  const id = R.nameFor(name);
-  const shape = record(A.slab(plan, z, h, { name: id, owner }, steps));
-  R.put({ at: [plan.x + plan.w / 2, plan.y + plan.d / 2, z + h / 2], bias, name: id, svg: S(k.slabOf(plan, z, h, P, steps, bevel), { tone, inner, lit, crease }) + extra, shapes: [shape] });
-  return shape;
-}
-function cyl(name, cx, cy, r, z, h, { tone = "mid", steps, bevel = 0, extra = "", inner = "", crease, bias = 0, owner } = {}) {
-  const id = R.nameFor(name);
-  const shape = record(A.cylinder(cx, cy, r, z, h, { name: id, owner }));
-  R.put({ at: [cx, cy, z + h / 2], bias, name: id, svg: S(k.cylinder(cx, cy, r, z, h, P, steps ?? G.stepsFor(r, 20, 72, KS), bevel), { tone, inner, crease }) + extra, shapes: [shape] });
-  return shape;
-}
-function discAt(name, F, s0, s1, r, { tone = "mid", extra = "", inner = "", bias = 0, owner, bevel = 0, lit = false } = {}) {
-  const id = R.nameFor(name);
-  const shape = record(A.disc(F, s0, s1, r, { name: id, owner }));
-  R.put({ at: G.pointOf(F, (s0 + s1) / 2, 0, 0), bias, name: id, svg: S(G.disc(s0, s1, r, F, P, { bevel }), { tone, inner, lit }) + extra, shapes: [shape] });
-  return shape;
-}
-function ballAt(name, c, r, { tone = "mid", owner } = {}) {
-  const id = R.nameFor(name);
-  const shape = record(A.ball(c, r, { name: id, owner }));
-  R.put({ at: c, name: id, svg: S(G.sphereOf(c, r, P, { steps: G.stepsFor(r, 24) }), { tone }), shapes: [shape] });
-  return shape;
-}
-
-// pipes: fillet the legs, gap the end fittings, chunk and record every run
-const ROUTES = [];
-function tubeItems(name, route, r, { tone = "hi", gaps = [], rims, limp = false, maxLength = 18, spacing = 1, caps = true, owner, touch } = {}) {
-  const id = R.nameFor(name);
-  R.route(id, route, r, { owner: owner ?? id, gaps, rims, limp, touch });
-  tubePieces(route, r, P, { maxLength, spacing, gaps, caps }).forEach((part, index) =>
-    R.put({ at: part.mid, name: `${id}:${index}`, route: id, chunk: index, svg: tubeSvg(part, { tone }), shapes: [A.tube(part.points, part.radii)] }),
-  );
-  return id;
-}
-function pipe(name, control, r, { bend = 3.4, tone = "hi", ends = ["nut", "nut"], nutR = 1.6, maxLength = 18 } = {}) {
-  const line = G.fillet(control, Math.max(r * bend, 3), 12, { P, tube: r });
-  const total = G.pathLength(line);
-  const collars = [];
-  [[0, -1], [total, 1]].forEach(([along, sign], index) => {
-    if (ends[index] !== "nut") return;
-    const thick = 1.6;
-    const tangent = G.tangentAlong(line, along);
-    collars.push({ centre: G.add3(G.pointAlong(line, along), G.mul3(tangent, (-sign * thick) / 2)), tangent, thick, gap: sign < 0 ? [0, thick] : [total - thick, total] });
-  });
-  const id = tubeItems(name, line, r, { tone, gaps: collars.map((c) => c.gap), rims: ends.map((e) => (e === "nut" ? nutR : r)), maxLength });
-  for (const c of collars) {
-    const F = G.frameAlong(c.centre, c.tangent);
-    discAt(`${id}.nut`, F, -c.thick / 2, c.thick / 2, nutR, { tone: "mid", owner: id, bevel: 0.2 });
-  }
-  ROUTES.push({ id, line, r });
-  return line;
-}
-// rim of a tube of radius a meeting a ball of radius b at c, toward direction d
-const onBall = (c, b, a, d) => G.add3(c, G.mul3(G.unit3(d), Math.sqrt(b * b - a * a)));
+const B = makeBench(P, R, KS, { bench: BENCH, benchH: BENCH_H, footH: FOOT_H, ns: "hp" });
+const { at, S, L, D, rounded, onFront, onRight, record, put, box, cyl, discAt, ballAt, pipe, onBall } = B;
 
 // ---------------------------------------------------------------- bench (back layer, ground)
-const back = [];
-back.push(`<path class="iso-halo" d="${k.haloOf(BENCH, -BENCH_H - FOOT_H, BENCH_H, P)}"/>`);
-const feet = k.corners(BENCH, 20).concat([[BENCH.x + BENCH.w / 2, BENCH.y + 20], [BENCH.x + BENCH.w / 2, BENCH.y + BENCH.d - 20]]);
-for (const [x, y] of feet.sort((a, b) => k.depthOf([...a, 0], P) - k.depthOf([...b, 0], P))) {
-  back.push(S(k.cylinder(x, y, 8, -BENCH_H - FOOT_H, 1.6, P, 28), { tone: "lo" }));
-  back.push(S(k.cylinder(x, y, 6, -BENCH_H - FOOT_H + 1.6, FOOT_H - 1.6, P, 28), { tone: "mid" }));
-}
-back.push(S(k.slabOf(BENCH, -BENCH_H, BENCH_H, P, 8, 1.6), { tone: "mid" }));
-record(A.slab(BENCH, -BENCH_H, BENCH_H, { name: "stand.bench" }, 8));
-back.push(L(k.planOutline(k.insetPlan(BENCH, 5), 0, P), { tone: "lo" }));
-const benchScrews = k.corners(BENCH, 10);
-back.push(L(benchScrews.map(([x, y]) => k.ring(x, y, 2.2, 0, P, 16)).join(""), { tone: "lo" }));
-back.push(D(benchScrews.map(([x, y]) => at([x, y, 0])), { size: 0.5 }));
-{
-  const strip = { x: -58, y: BENCH.y + BENCH.d - 11, w: 236, d: 7, r: 1 };
-  back.push(S(k.slabOf(strip, 0, 0.6, P, 3), { tone: "lo", crease: "none" }));
-  const ticks = k.topTicks(strip.x + 4, strip.x + strip.w - 4, 4, 5, strip.y + 0.8, 0.6, [2, 3.6], P);
-  back.push(L(ticks.minor, { tone: "lo" }), L(ticks.major, { tone: "mid" }));
-  back.push(D([at([strip.x + 2, strip.y + 3.5, 0.6]), at([strip.x + strip.w - 2, strip.y + 3.5, 0.6])], { size: 0.45 }));
-  const label = { x: -200, y: BENCH.y + BENCH.d - 12, w: 40, d: 9, r: 1.2 };
-  back.push(S(k.slabOf(label, 0, 0.8, P, 3), { tone: "lo", crease: "none" }));
-  back.push(L(k.planOutline(k.insetPlan(label, 1.4), 0.8, P, 3), { tone: "faint" }));
-  back.push(L([24, 16].map((w, i) => k.lineOnTop([label.x + 4, label.y + 3.6 + i * 3], [label.x + 4 + w, label.y + 3.6 + i * 3], 0.8, P)).join(""), { tone: "lo", free: true }));
-  back.push(D([at([label.x + label.w - 3.4, label.y + label.d / 2, 0.8])], { size: 0.45 }));
-}
 // soft shadows under the stacks and the free-standing parts
-for (const [plan, h] of [[DEGAS, 8], [RS, 8], [{ x: WASTE[0] - 12, y: WASTE[1] - 12, w: 24, d: 24, r: 12 }, 4], [{ x: 140, y: -18, w: 44, d: 32, r: 3 }, 3], [{ x: DAMPER[0] - 8, y: DAMPER[1] - 8, w: 16, d: 16, r: 8 }, 3]])
-  back.push(`<path class="iso-halo" d="${k.haloOf(plan, 0, h, P)}" style="opacity:calc(var(--anatomy-halo-opacity)*.7)"/>`);
+const back = B.stand({
+  strip: { x: -58, w: 236 },
+  label: { x: -200 },
+  shadows: [[DEGAS, 8], [RS, 8], [{ x: WASTE[0] - 12, y: WASTE[1] - 12, w: 24, d: 24, r: 12 }, 4], [{ x: 140, y: -18, w: 44, d: 32, r: 3 }, 3], [{ x: DAMPER[0] - 8, y: DAMPER[1] - 8, w: 16, d: 16, r: 8 }, 3]],
+});
 
 // ---------------------------------------------------------------- left stack: degasser
 {
@@ -319,30 +227,7 @@ const BOTTLES = [
   { id: "B", x: -120, y: -15, level: 98, port: DEG_PORTS.inB, lift: 172 },
 ];
 const BOT = { r: 14, z0: Z_TRAY + 2, body: 34, shoulder: 10, neck: 6.2, neckH: 3, cap: 8, capH: 8 };
-const shoulderR = (s) => BOT.neck + (BOT.r - BOT.neck) * Math.cos((Math.PI / 2) * Math.min(1, Math.max(0, s / BOT.shoulder)));
-const shoulderSlope = (s) => -(BOT.r - BOT.neck) * (Math.PI / 2 / BOT.shoulder) * Math.sin((Math.PI / 2) * Math.min(1, Math.max(0, s / BOT.shoulder)));
-for (const b of BOTTLES) {
-  const zb = BOT.z0;
-  const zs = zb + BOT.body;
-  cyl(`bottle-${b.id}.body`, b.x, b.y, BOT.r, zb, BOT.body, {
-    tone: "mid",
-    inner: L(k.sideArc(b.x, b.y, BOT.r, b.level, P, 40), { tone: "lo" }) + L([zb + 8, zb + 20].map((z) => k.sideArc(b.x, b.y, BOT.r, z, P, 40)).join(""), { tone: "faint" }),
-  });
-  const F = G.frameOf([b.x, b.y, zs], [0, 0, 1], [1, 0, 0], [0, 1, 0]);
-  const prof = Array.from({ length: 21 }, (_, i) => {
-    const s = (i / 20) * BOT.shoulder;
-    return [s, shoulderR(s), i > 0 && i < 20 ? 1 : 0];
-  });
-  const id = R.nameFor(`bottle-${b.id}.shoulder`);
-  const shape = record(A.solid(F, prof.map(([s, r]) => [s, r]), { name: id, radius: shoulderR }));
-  R.put({ at: [b.x, b.y, zs + BOT.shoulder / 2], name: id, shapes: [shape], svg: S(G.solidOf(prof, F, P, { smooth: { slope: shoulderSlope, radius: shoulderR } }), { tone: "mid" }) });
-  const zn = zs + BOT.shoulder;
-  cyl(`bottle-${b.id}.neck`, b.x, b.y, BOT.neck, zn, BOT.neckH, { tone: "mid" });
-  const zc = zn + BOT.neckH;
-  cyl(`bottle-${b.id}.cap`, b.x, b.y, BOT.cap, zc, BOT.capH, { tone: "lo", bevel: 0.5, extra: L(k.knurl(b.x, b.y, BOT.cap, zc, zc + BOT.capH, 40, P), { tone: "faint" }) + D([at([b.x + 4.2, b.y - 1.4, zc + BOT.capH])], { size: 0.5, tone: "mid" }) });
-  cyl(`bottle-${b.id}.cap-port`, b.x, b.y, 2.2, zc + BOT.capH, 2, { tone: "mid" });
-  b.top = [b.x, b.y, zc + BOT.capH + 2];
-}
+for (const b of BOTTLES) b.top = B.bottle(`bottle-${b.id}`, { ...BOT, x: b.x, y: b.y, level: b.level, bands: [BOT.z0 + 8, BOT.z0 + 20] });
 // aspiration lines: up out of each cap, across, and down to the degasser inlets
 for (const b of BOTTLES) pipe(`line-${b.id}`, [b.top, [b.x, b.y, b.lift], [b.port[0], b.port[1], b.lift], [b.port[0], b.port[1], Z_DEGAS[1] + 2]], 1.25, { bend: 4, tone: "hi", nutR: 2, maxLength: 16 });
 
@@ -547,61 +432,27 @@ pipe("line.damper-to-valve", [G.pointOf(DAMP_OUT_F, 3, 0, 0), [DAMPER[0], 16, 20
 pipe("line.valve-to-column", [P205, [P205[0], P205[1], 170], [-70, COL_Y, 170], [-70, COL_Y, COL_Z], G.pointOf(bulkL_out, 4, 0, 0)], 0.9, { bend: 4, nutR: 1.5 });
 
 // ---------------------------------------------------------------- waste bottle
-{
-  const [x, y] = WASTE;
-  cyl("waste.body", x, y, 12, 0, 34, { tone: "mid", inner: L(k.sideArc(x, y, 12, 14, P, 36), { tone: "lo" }) + L(k.sideArc(x, y, 12, 26, P, 36), { tone: "faint" }) });
-  const F = G.frameOf([x, y, 34], [0, 0, 1], [1, 0, 0], [0, 1, 0]);
-  const R0 = 12;
-  const N = 5;
-  const rad = (s) => N + (R0 - N) * Math.cos((Math.PI / 2) * Math.min(1, Math.max(0, s / 8)));
-  const slope = (s) => -(R0 - N) * (Math.PI / 16) * Math.sin((Math.PI / 2) * Math.min(1, Math.max(0, s / 8)));
-  const prof = Array.from({ length: 17 }, (_, i) => [(i / 16) * 8, rad((i / 16) * 8), i > 0 && i < 16 ? 1 : 0]);
-  const id = R.nameFor("waste.shoulder");
-  const shape = record(A.solid(F, prof.map(([s, r]) => [s, r]), { name: id, radius: rad }));
-  R.put({ at: [x, y, 38], name: id, shapes: [shape], svg: S(G.solidOf(prof, F, P, { smooth: { slope, radius: rad } }), { tone: "mid" }) });
-  cyl("waste.cap", x, y, 6, 42, 6, { tone: "lo", bevel: 0.4, extra: L(k.knurl(x, y, 6, 42, 48, 28, P), { tone: "faint" }) });
-  cyl("waste.port", x, y, 1.8, 48, 2, { tone: "mid" });
-}
+B.bottle("waste", { x: WASTE[0], y: WASTE[1], z0: 0, r: 12, body: 34, shoulder: 8, neck: 5, cap: 6, capH: 6, capBevel: 0.4, knurl: 28, capDot: null, level: 14, bands: [26], arcSteps: 36, samples: 16, port: 1.8, portName: "port" });
 pipe("line.cell-to-waste", [G.pointOf(FC_OUT_F, 2, 0, 0), [86, FC_OUT_F.o[1], FC_OUT_F.o[2]], [86, FC_OUT_F.o[1], 60], [WASTE[0], FC_OUT_F.o[1], 60], [WASTE[0], FC_OUT_F.o[1], 50]], 0.9, { bend: 4 });
 
-// ---------------------------------------------------------------- control panel with the chromatogram
-{
-  box("panel.base", { x: 140, y: -18, w: 44, d: 32, r: 3 }, 0, 5, { tone: "lo", bevel: 0.6, extra: D(k.corners({ x: 140, y: -18, w: 44, d: 32, r: 3 }, 4).map(([x, y]) => at([x, y, 5])), { size: 0.45 }) });
-  cyl("panel.neck", 162, 0, 3.4, 5, PANEL.z0 - 5, { tone: "mid", inner: L(k.sideArc(162, 0, 3.4, 12, P, 16), { tone: "faint" }) });
-  const plan = { x: PANEL.x, y: PANEL.y, w: PANEL.x1 - PANEL.x, d: PANEL.y1 - PANEL.y, r: 1.4 };
-  const buttons = [[140, 26], [147, 26], [154, 26]];
-  box("panel.body", plan, PANEL.z0, PANEL.z1 - PANEL.z0, {
-    tone: "mid",
-    bevel: 0.6,
-    extra: L(rounded(SCREEN.x0 - 2, SCREEN.z0 - 2, SCREEN.x1 + 2, SCREEN.z1 + 2, 3, onFront(PANEL.y1)), { tone: "lo" }) + L(buttons.map(([x, z]) => rounded(x - 2.4, z - 1.2, x + 2.4, z + 1.2, 1.1, onFront(PANEL.y1))).join(""), { tone: "lo" }) + D([at([186, PANEL.y1, 26])], { size: 0.8, tone: "hi" }),
-  });
-}
-
-// data cable from the detector to the control panel, lying on the bench
-{
-  const detF = G.frameAlong([RS.x + RS.w, -38, 5], [1, 0, 0]);
-  discAt("detector.data-port", detF, 0, 2.5, 1.9, { tone: "mid", extra: L(G.circleOf(detF, 2.5, 0.9, P, 12), { tone: "faint" }) });
-  const panF = G.frameAlong([140, -6, 2.6], [-1, 0, 0]);
-  discAt("panel.data-port", panF, 0, 2.5, 1.9, { tone: "mid" });
-  const route = G.fillet([G.pointOf(detF, 2.5, 0, 0), [68, -38, 5], [76, -38, 0.62], [124, -6, 0.62], [130, -6, 2.6], G.pointOf(panF, 2.5, 0, 0)], 3, 12, { P, tube: 0.62 });
-  tubeItems("panel.cable", route, 0.62, { tone: "mid", limp: true, maxLength: 14, rims: [0.62, 0.62], touch: ["stand.bench"] });
-}
-
-// ---------------------------------------------------------------- the screen, drawn in the plane of the panel front
-const PLOT = { x0: SCREEN.x0 + 4, x1: SCREEN.x1, z0: SCREEN.z0 + 5, z1: SCREEN.z1 - 7 };
-{
-  const plane = k.sideMatrix([0, PANEL.y1], 0, P, "left");
-  const flat = (x0, z0, x1, z1, r) => k.pathOf(k.roundedPlan({ x: x0, y: z0, w: x1 - x0, d: z1 - z0, r }, 6).map(([u, z]) => [u, -z]), true);
-  const win = flat(SCREEN.x0, SCREEN.z0, SCREEN.x1, SCREEN.z1, SCREEN.r);
-  const grid = [0.25, 0.5, 0.75, 1].map((f) => `M${SCREEN.x0} ${-(PLOT.z0 + f * (PLOT.z1 - PLOT.z0)).toFixed(2)}H${SCREEN.x1}`).join("");
-  const svg = `<g transform="${plane}"><clipPath id="hp-screen"><path d="${win}"/></clipPath><path class="hp-lcd" d="${win}"/><g clip-path="url(#hp-screen)"><path class="iso-line" data-tone="faint" d="${grid}"/><path class="iso-line" data-tone="lo" d="M${PLOT.x0} ${-SCREEN.z0}V${-SCREEN.z1}M${SCREEN.x0} ${-PLOT.z0}H${SCREEN.x1}"/><path data-part="ticks" class="iso-line" data-tone="lo" d=""/><path data-part="gradient" class="iso-line" data-tone="lo" data-dashed d=""/><clipPath id="hp-reveal"><rect data-part="reveal" x="${SCREEN.x0}" y="${-SCREEN.z1}" width="0" height="${SCREEN.z1 - SCREEN.z0}"/></clipPath><g clip-path="url(#hp-reveal)"><path data-part="trace" class="iso-line hp-trace" data-tone="hi" d=""/></g><circle data-part="pen" class="hp-pen" r="0.9" cx="${PLOT.x0}" cy="${-PLOT.z0}"/><text class="hp-lcd-text" data-part="clock" x="${SCREEN.x0 + 4.6}" y="${-(SCREEN.z1 - 4.6)}" font-size="3.6">t 0.00 min</text><text class="hp-lcd-text" data-part="phase" x="${SCREEN.x1 - 2.6}" y="${-(SCREEN.z1 - 4.6)}" font-size="3.6" text-anchor="end">20 %B</text></g><path class="iso-line" data-tone="lo" d="${win}"/></g>`;
-  put("panel.screen", [162, PANEL.y1 + 0.1, 54], svg, [record(A.box([SCREEN.x0, PANEL.y1, SCREEN.z0], [SCREEN.x1, PANEL.y1 + 0.1, SCREEN.z1], { name: "panel.screen" }))], { bias: 0.5 });
-}
+// ---------------------------------------------------------------- control panel with the chromatogram, cabled to the detector
+const PLOT = B.panel("panel", {
+  base: { x: 140, y: -18, w: 44, d: 32, r: 3 },
+  neck: { x: 162, y: 0, r: 3.4 },
+  body: PANEL,
+  screen: SCREEN,
+  buttons: [[140, 26], [147, 26], [154, 26]],
+  led: [186, 26],
+  cable: [
+    { name: "detector.data-port", at: [RS.x + RS.w, -38, 5], dir: [1, 0, 0], ring: 0.9 },
+    { name: "panel.data-port", at: [140, -6, 2.6], dir: [-1, 0, 0] },
+    [[68, -38, 5], [76, -38, 0.62], [124, -6, 0.62], [130, -6, 2.6]],
+  ],
+  text: { clock: "t 0.00 min", phase: "20 %B" },
+});
 
 // ---------------------------------------------------------------- settle, sort, page
-A.settle(R, P);
-R.items.sort((a, b) => a.key - b.key);
-const body = R.items.map((item) => `<g class="it" data-n="${item.name}">${item.svg}</g>`).join("");
+const body = B.settle();
 const LABEL =
   "A high-performance liquid chromatograph on a bench, in two stacks. Left: two solvent bottles on a tray feed a vacuum degasser, which feeds a binary pump whose two pistons are driven by eccentric cams; their outlets meet in a tee and pass a pulse damper with a pressure gauge. Right: an autosampler with a vial rack, a needle on a gantry and a six-port injection valve with its sample loop; below it an open column oven holding a C18 column whose packed bed and frits show through a cut-away window; below that a UV detector with its lamp and a flow cell, and a waste bottle. A control panel shows the chromatogram as it is recorded.";
 const needleCut = `<clipPath id="hp-needle-cut"><rect data-part="cut" x="-2000" y="-2000" width="4000" height="0"/></clipPath>`;
@@ -628,38 +479,45 @@ const DATA = {
   limits: M.LIMITS,
   speed: 0.6, // run minutes shown per second of page time
 };
-const MODEL = readFileSync(join(HERE, "model.mjs"), "utf8").replace(/^export /gm, "");
+const MODEL = moduleText(join(HERE, "model.mjs"));
 const LIVE = readFileSync(join(HERE, "live.js"), "utf8").replace("__DATA__", JSON.stringify(DATA));
 const CSS = readFileSync(join(HERE, "hplc.css"), "utf8");
 
 const r0 = M.run(M.DEFAULTS);
 const readout0 = `${M.DEFAULTS.flow.toFixed(2)} mL/min · ${Math.round(M.pressure(M.DEFAULTS.flow, M.DEFAULTS.phi0))} bar · ${Math.round(M.DEFAULTS.phi0 * 100)} %B`;
-const controls = `<div class="hp-controls">
-<label class="hp-ctl"><span class="hp-ctl-name">Flow</span><input type="range" data-ctl="flow" min="${M.LIMITS.flow[0]}" max="${M.LIMITS.flow[1]}" step="0.05" value="${M.DEFAULTS.flow}" aria-valuetext="${M.DEFAULTS.flow.toFixed(2)} mL/min"><output data-out="flow">${M.DEFAULTS.flow.toFixed(2)} mL/min</output></label>
-<label class="hp-ctl"><span class="hp-ctl-name">Final %B</span><input type="range" data-ctl="phi1" min="40" max="${Math.round(M.LIMITS.phi1[1] * 100)}" step="1" value="${Math.round(M.DEFAULTS.phi1 * 100)}" aria-valuetext="${Math.round(M.DEFAULTS.phi1 * 100)} percent acetonitrile"><output data-out="phi1">${Math.round(M.DEFAULTS.phi1 * 100)} %</output></label>
-<span class="hp-method" data-method>t0 ${r0.t0.toFixed(2)} · tR ${r0.peaks.map((p) => `${p.name} ${p.tR.toFixed(2)}`).join(" · ")} min</span>
-</div><span class="hp-live" aria-live="polite" data-live></span>`;
-const stage = `<div class="iso-stage hp-stage" tabindex="0" role="slider" aria-label="HPLC system. Left and right arrow keys change the pump flow; Shift for bigger steps, Home and End for the limits." aria-valuemin="${M.LIMITS.flow[0]}" aria-valuemax="${M.LIMITS.flow[1]}" aria-valuenow="${M.DEFAULTS.flow}" aria-valuetext="Flow ${M.DEFAULTS.flow.toFixed(2)} mL/min, ${Math.round(r0.pMax)} bar, peaks at ${r0.peaks.map((p) => p.tR.toFixed(2)).join(", ")} min">${svg}</div>`;
-const page = k.pageHtml({
+const controls = controlsHtml(
+  [
+    { key: "flow", name: "Flow", min: M.LIMITS.flow[0], max: M.LIMITS.flow[1], step: 0.05, value: M.DEFAULTS.flow, text: `${M.DEFAULTS.flow.toFixed(2)} mL/min`, valuetext: `${M.DEFAULTS.flow.toFixed(2)} mL/min` },
+    { key: "phi1", name: "Final %B", min: 40, max: Math.round(M.LIMITS.phi1[1] * 100), step: 1, value: Math.round(M.DEFAULTS.phi1 * 100), text: `${Math.round(M.DEFAULTS.phi1 * 100)} %`, valuetext: `${Math.round(M.DEFAULTS.phi1 * 100)} percent acetonitrile` },
+  ],
+  `t0 ${r0.t0.toFixed(2)} · tR ${r0.peaks.map((p) => `${p.name} ${p.tR.toFixed(2)}`).join(" · ")} min`,
+);
+const stage = stageHtml(svg, {
+  label: "HPLC system. Left and right arrow keys change the pump flow; Shift for bigger steps, Home and End for the limits.",
+  min: M.LIMITS.flow[0],
+  max: M.LIMITS.flow[1],
+  now: M.DEFAULTS.flow,
+  valuetext: `Flow ${M.DEFAULTS.flow.toFixed(2)} mL/min, ${Math.round(r0.pMax)} bar, peaks at ${r0.peaks.map((p) => p.tR.toFixed(2)).join(", ")} min`,
+});
+const page = pageOf({
   title: "HPLC system",
   theme: THEME,
   width: 940,
-  body:
-    `<style>${CSS}</style>` +
-    k.plateHtml({
-      fig: "Fig 1",
-      title: "HPLC · reversed phase C18",
-      hint: "← → flow · sliders below",
-      readout: readout0,
-      keys: [
-        { mark: "lit", label: "Analyte bands in the C18 bed: each travels at 1/(1+k) of the eluent speed" },
-        { mark: "raised", label: "Pistons, cams, needle and valve rotor: what the pump and sampler do" },
-        { mark: "edge", label: "Capillaries in flow order: bottles, degasser, pump, damper, valve, column, flow cell, waste" },
-      ],
-      caption: `Reversed-phase HPLC with a ${COLUMN_TEXT()} column (${M.COLUMN.plates.toLocaleString("en-US")} plates) and a water/acetonitrile gradient from ${Math.round(M.DEFAULTS.phi0 * 100)} % B to the final %B over ${M.DEFAULTS.tG} min. Each pump piston strokes at its own share of the flow (${PUMP_STROKE_UL} µL per stroke, real time); the run clock on the screen and in the column is sped up ${Math.round(60 * DATA.speed)}×. Backpressure is Kozeny–Carman through the bed (${Math.round(M.pressure(M.DEFAULTS.flow, M.DEFAULTS.phi0))} bar at ${M.DEFAULTS.flow.toFixed(1)} mL/min); the dead time is ${r0.t0.toFixed(2)} min, and each band moves down the column at a speed set by its retention factor in the eluent of that moment, so it reaches the flow cell at its retention time.`,
-      body: stage + controls,
-    }),
-  script: kitScript() + "\n" + MODEL + "\n" + LIVE,
+  css: CSS,
+  plate: {
+    fig: "Fig 1",
+    title: "HPLC · reversed phase C18",
+    hint: "← → flow · sliders below",
+    readout: readout0,
+    keys: [
+      { mark: "lit", label: "Analyte bands in the C18 bed: each travels at 1/(1+k) of the eluent speed" },
+      { mark: "raised", label: "Pistons, cams, needle and valve rotor: what the pump and sampler do" },
+      { mark: "edge", label: "Capillaries in flow order: bottles, degasser, pump, damper, valve, column, flow cell, waste" },
+    ],
+    caption: `Reversed-phase HPLC with a ${COLUMN_TEXT()} column (${M.COLUMN.plates.toLocaleString("en-US")} plates) and a water/acetonitrile gradient from ${Math.round(M.DEFAULTS.phi0 * 100)} % B to the final %B over ${M.DEFAULTS.tG} min. Each pump piston strokes at its own share of the flow (${PUMP_STROKE_UL} µL per stroke, real time); the run clock on the screen and in the column is sped up ${Math.round(60 * DATA.speed)}×. Backpressure is Kozeny–Carman through the bed (${Math.round(M.pressure(M.DEFAULTS.flow, M.DEFAULTS.phi0))} bar at ${M.DEFAULTS.flow.toFixed(1)} mL/min); the dead time is ${r0.t0.toFixed(2)} min, and each band moves down the column at a speed set by its retention factor in the eluent of that moment, so it reaches the flow cell at its retention time.`,
+    body: stage + controls,
+  },
+  script: scriptOf(kitScript(), MODEL, LIVE_CORE, LIVE),
 });
 function COLUMN_TEXT() {
   return `${M.COLUMN.L * 1000} × ${(M.COLUMN.d * 1000).toFixed(1)} mm, ${M.COLUMN.dp * 1e6} µm`;
